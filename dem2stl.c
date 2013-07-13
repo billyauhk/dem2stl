@@ -9,7 +9,8 @@
 */
 
 /* Invocation:
-  ./dem2stl vertfactor scale north south east west
+  ./dem2stl skip vertfactor scale north south east west
+        skip -- (rude) downsampling figure, default 10
         vertfact -- vertical exaggeration
         scale -- scale at center
         north, south, east, west -- boundaries
@@ -34,12 +35,13 @@ Line order: Top to bottom
 */
 #define countX 13639      //Cell Count X: 13639
 #define countY 9547       //Cell Count Y: 9547
-#define cellSize 0.000045 //Cell Size: 0.000045
-#define startX 113.8217   //Left Border X: 113.8217
-#define startY 22.5735    //Lower Border Y: 22.5735
-#define padding 5         //Padding depth 5mm
+#define cellSize 0.000045f //Cell Size: 0.000045
+#define startX 113.8217f   //Left Border X: 113.8217
+#define startY 22.5735f    //Lower Border Y: 22.5735
+#define padding 5.0f       //Padding depth 5mm
 
 float* data;
+unsigned int skip = 10;
 float vertfact = 10.0f;
 float scale = 1.0f;
 float north, south, east, west;
@@ -47,17 +49,19 @@ float north, south, east, west;
 // Generate X coordinate and Y coordinate
 // with a simple formula without consideration to ellipsoid/spherical
 // but the scale correction for central parallel/meridian only
-float getX(unsigned int index){
-  return index;
+float getX(int index){
+  return index*scale;
 }
 
-float getY(unsigned int index){
-  return index;
+float getY(int index){
+  return -index*scale;
 }
 
 float getZ(unsigned int x, unsigned int y){
   float ans;
-  ans = data[x*countX+y];  // Get the value
+  if(x<0 || x>=countX)fprintf(stderr,"Strange X: %u",x);
+  if(y<0 || y>=countY)fprintf(stderr,"Strange Y: %u",y);
+  ans = data[y*countX+x];  // Get the value
   ans = ans/1852.0f*10.0f; // Convert to 1.0 nm/cm
   ans *= scale*vertfact;   // Consider scale and vertical exaggeration
   return ans;
@@ -90,7 +94,7 @@ void calcNormal(triangle* t){
                 -(t->vertex2[ycomp]-t->vertex1[ycomp])*(t->vertex3[xcomp]-t->vertex1[xcomp]);
 
   //Normalization
-  magnitude = sqrtf(square(t->normal[0])+square(t->normal[1])+square(t->normal[2]));
+  magnitude = -sqrtf(square(t->normal[0])+square(t->normal[1])+square(t->normal[2]));
   t->normal[0] /= magnitude;
   t->normal[1] /= magnitude;
   t->normal[2] /= magnitude;
@@ -108,29 +112,31 @@ int main(int argc, char* argv[]){
 
 // Read Arguments
   if(argc > 1){
-    vertfact = atof(argv[1]);
+    skip = atoi(argv[1]);
+  }
+  printf("Down-sampling ratio: %u\n",skip);
+  if(argc > 2){
+    vertfact = atof(argv[2]);
   }
   printf("Vertical exaggeration: %.2f\n", vertfact);
-  if(argc > 2){
-    scale = atof(argv[2]);
+  if(argc > 3){
+    scale = atof(argv[3]);
   }
   printf("Scale: %.2f nm/cm at model center\n", scale);
 
-  north = startY + cellSize*countY;
-  south = startY;
-  east = startX + cellSize*countX;
-  west = startX;
-  if(argc > 6){
-    north = atof(argv[3]);
-    south = atof(argv[4]);
-    east = atof(argv[5]);
-    west = atof(argv[6]);
+//TODO: Rewrite the default values
+
+  if(argc > 7){
+    north = atof(argv[4]);
+    south = atof(argv[5]);
+    east = atof(argv[6]);
+    west = atof(argv[7]);
     if((north<south) || (east<west)){
       fprintf(stderr,"The order is north south east west.\n");
       fprintf(stderr,"And HK is on the North and East Hemisphere...\n");
       exit(-1);
     }
-  }else if(argc > 3){
+  }else if(argc > 4){
     printf("Something wrong. You should give 4 parameters for the boundary.\n");
     printf("But I would carry on with the default values.\n");
   }
@@ -165,10 +171,11 @@ int main(int argc, char* argv[]){
     *((uint32_t*) data+i) = ntohl(*((uint32_t*) data+i));
   }
   // Determine the final region to be scanned
-  xa = floorf((west-startX)/cellSize);
-  xb = ceilf((east-startX)/cellSize);
-  ya = floorf((south-startY)/cellSize);
-  yb = ceilf((north-startY)/cellSize);
+  xb = floorf((east-startX)/cellSize);
+  xa = ceilf((west-startX)/cellSize);
+  // startY - lat as the file is scanned north to south
+  ya = ceilf((startY-north)/cellSize);
+  yb = floorf((startY-south)/cellSize);
   // Boundary handling
   if(xa < 0) xa=0;
   if(xb >= countX) xb = (countX-1);
@@ -187,7 +194,7 @@ int main(int argc, char* argv[]){
       fprintf(stderr,"Write fail.\n");exit(-1);
     }
     // 4-bytes for total number of facets
-    totalTriangle = (yb-ya)*(xb-xa)*2   /* Topography triangles */;// \
+    totalTriangle = (yb-ya)/skip*(xb-xa)/skip*2   /* Topography triangles */;// \
 //                   +((ya-yb)+(xa-xb))*2 /* 4-sides of base */      \
 //                   +2;                  /* Bottom of base  */
     if((retVal = write(outfile, &totalTriangle, sizeof(uint32_t)))!=4){
@@ -202,30 +209,30 @@ int main(int argc, char* argv[]){
            all adjacent facets must share two common vertices... */
 
     // Time for the topography triangles...
-    for(i=xa;i<xb;i++){
-      for(j=ya;j<yb;j++){
+    for(i=xa;(i+skip <xb)&&(i+skip <countX);i+=skip){
+      for(j=ya;(j+skip <yb)&&(j+skip <countY);j+=skip){
         // First triangle: (i,j) -> (i+1, j) ->  (i, j+1)
         buffer[0].vertex1[0] = getX(i);
         buffer[0].vertex1[1] = getY(j);
         buffer[0].vertex1[2] = getZ(i,j);
-        buffer[0].vertex2[0] = getX(i+1);
+        buffer[0].vertex2[0] = getX(i+skip);
         buffer[0].vertex2[1] = getY(j);
-        buffer[0].vertex2[2] = getZ(i+1,j);
+        buffer[0].vertex2[2] = getZ(i+skip,j);
         buffer[0].vertex3[0] = getX(i);
-        buffer[0].vertex3[1] = getY(j+1);
-        buffer[0].vertex3[2] = getZ(i,j+1);
+        buffer[0].vertex3[1] = getY(j+skip);
+        buffer[0].vertex3[2] = getZ(i,j+skip);
         calcNormal(buffer+0);
 
         // Second triangle: (i+1, j) -> (i+1, j+1) -> (i, j+1)
-        buffer[1].vertex1[0] = getX(i+1);
+        buffer[1].vertex1[0] = getX(i+skip);
         buffer[1].vertex1[1] = getY(j);
-        buffer[1].vertex1[2] = getZ(i+1,j);
-        buffer[1].vertex2[0] = getX(i+1);
-        buffer[1].vertex2[1] = getY(j+1);
-        buffer[1].vertex2[2] = getZ(i+1,j+1);
+        buffer[1].vertex1[2] = getZ(i+skip,j);
+        buffer[1].vertex2[0] = getX(i+skip);
+        buffer[1].vertex2[1] = getY(j+skip);
+        buffer[1].vertex2[2] = getZ(i+skip,j+skip);
         buffer[1].vertex3[0] = getX(i);
-        buffer[1].vertex3[1] = getY(j+1);
-        buffer[1].vertex3[2] = getZ(i,j+1);
+        buffer[1].vertex3[1] = getY(j+skip);
+        buffer[1].vertex3[2] = getZ(i,j+skip);
         calcNormal(buffer+1);
 
         if((retVal = write(outfile,buffer,100))!=100){
