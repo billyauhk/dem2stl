@@ -33,8 +33,8 @@ Data type: 4 Byte Floating Point
 Byte order: Big Endian (Motorola)
 Line order: Top to bottom
 */
-#define countX 13639      //Cell Count X: 13639
-#define countY 9547       //Cell Count Y: 9547
+#define countX 13639       //Cell Count X: 13639
+#define countY 9547        //Cell Count Y: 9547
 #define cellSize 0.000045f //Cell Size: 0.000045
 #define startX 113.8217f   //Left Border X: 113.8217
 #define startY 22.5735f    //Lower Border Y: 22.5735
@@ -46,15 +46,22 @@ float vertfact = 10.0f;
 float scale = 1.0f;
 float north, south, east, west;
 
+#define deg2rad (3.1415926f/180.0f)
 // Generate X coordinate and Y coordinate
 // with a simple formula without consideration to ellipsoid/spherical
 // but the scale correction for central parallel/meridian only
 float getX(int index){
-  return index*scale;
+  float ans;
+  ans = (index-countX/2)*60*1852*cellSize;
+  ans *= cos(22*deg2rad)/scale;
+  return ans;
 }
 
 float getY(int index){
-  return -index*scale;
+  float ans;
+  ans = (-index+countY/2)*60*1852*cellSize;
+  ans *= cos(22*deg2rad)/scale;
+  return ans;
 }
 
 float getZ(unsigned int x, unsigned int y){
@@ -63,7 +70,7 @@ float getZ(unsigned int x, unsigned int y){
   if(y<0 || y>=countY)fprintf(stderr,"Strange Y: %u",y);
   ans = data[y*countX+x];  // Get the value
   ans = ans/1852.0f*10.0f; // Convert to 1.0 nm/cm
-  ans *= scale*vertfact;   // Consider scale and vertical exaggeration
+  ans *= vertfact/scale;   // Consider scale and vertical exaggeration
   return ans;
 }
 
@@ -94,20 +101,20 @@ void calcNormal(triangle* t){
                 -(t->vertex2[ycomp]-t->vertex1[ycomp])*(t->vertex3[xcomp]-t->vertex1[xcomp]);
 
   //Normalization
-  magnitude = -sqrtf(square(t->normal[0])+square(t->normal[1])+square(t->normal[2]));
+  magnitude = sqrtf(square(t->normal[0])+square(t->normal[1])+square(t->normal[2]));
   t->normal[0] /= magnitude;
   t->normal[1] /= magnitude;
   t->normal[2] /= magnitude;
 }
 
 int main(int argc, char* argv[]){
-  unsigned int i,j;            // Loop indices
+  unsigned int i,j;           // Loop indices
   int xa, xb, ya, yb;          // Boundary values
   int infile, outfile, retVal; // FD + return value tmp
   unsigned int total_size;
 
   char headerLine[80];         // STL file header line
-  unsigned int totalTriangle;  // Total # of triangles
+  unsigned int totalTriangle; // Total # of triangles
   triangle buffer[2];          // Buffering two triangles
 
 // Read Arguments
@@ -124,7 +131,10 @@ int main(int argc, char* argv[]){
   }
   printf("Scale: %.2f nm/cm at model center\n", scale);
 
-//TODO: Rewrite the default values
+  west = startX;
+  east = countX*cellSize+startX;
+  north = startY;
+  south = startY-countY*cellSize;
 
   if(argc > 7){
     north = atof(argv[4]);
@@ -171,8 +181,8 @@ int main(int argc, char* argv[]){
     *((uint32_t*) data+i) = ntohl(*((uint32_t*) data+i));
   }
   // Determine the final region to be scanned
-  xb = floorf((east-startX)/cellSize);
   xa = ceilf((west-startX)/cellSize);
+  xb = floorf((east-startX)/cellSize);
   // startY - lat as the file is scanned north to south
   ya = ceilf((startY-north)/cellSize);
   yb = floorf((startY-south)/cellSize);
@@ -194,9 +204,9 @@ int main(int argc, char* argv[]){
       fprintf(stderr,"Write fail.\n");exit(-1);
     }
     // 4-bytes for total number of facets
-    totalTriangle = (yb-ya)/skip*(xb-xa)/skip*2   /* Topography triangles */;// \
-//                   +((ya-yb)+(xa-xb))*2 /* 4-sides of base */      \
-//                   +2;                  /* Bottom of base  */
+    totalTriangle = (yb-ya)/skip*(xb-xa)/skip*2  /* Topography triangles */;// \
+//                   +((ya-yb)+(xa-xb))/skip*2   /* 4-sides of base */      \
+//                   +(yb-ya)/skip*(xb-xa)/skip*2; /* Bottom of base  */
     if((retVal = write(outfile, &totalTriangle, sizeof(uint32_t)))!=4){
       fprintf(stderr,"Write fail.\n");exit(-1);
     }
@@ -211,28 +221,29 @@ int main(int argc, char* argv[]){
     // Time for the topography triangles...
     for(i=xa;(i+skip <xb)&&(i+skip <countX);i+=skip){
       for(j=ya;(j+skip <yb)&&(j+skip <countY);j+=skip){
-        // First triangle: (i,j) -> (i+1, j) ->  (i, j+1)
+        // Notice, larger i is on the East and larger j is pointing South
+        // First triangle: (i,j) -> (i,j+1) -> (i+1, j)
         buffer[0].vertex1[0] = getX(i);
         buffer[0].vertex1[1] = getY(j);
         buffer[0].vertex1[2] = getZ(i,j);
-        buffer[0].vertex2[0] = getX(i+skip);
-        buffer[0].vertex2[1] = getY(j);
-        buffer[0].vertex2[2] = getZ(i+skip,j);
-        buffer[0].vertex3[0] = getX(i);
-        buffer[0].vertex3[1] = getY(j+skip);
-        buffer[0].vertex3[2] = getZ(i,j+skip);
+        buffer[0].vertex2[0] = getX(i);
+        buffer[0].vertex2[1] = getY(j+skip);
+        buffer[0].vertex2[2] = getZ(i,j+skip);
+        buffer[0].vertex3[0] = getX(i+skip);
+        buffer[0].vertex3[1] = getY(j);
+        buffer[0].vertex3[2] = getZ(i+skip,j);
         calcNormal(buffer+0);
 
-        // Second triangle: (i+1, j) -> (i+1, j+1) -> (i, j+1)
+        // Second triangle: (i+1, j) -> (i, j+1) -> (i+1, j+1)
         buffer[1].vertex1[0] = getX(i+skip);
         buffer[1].vertex1[1] = getY(j);
         buffer[1].vertex1[2] = getZ(i+skip,j);
-        buffer[1].vertex2[0] = getX(i+skip);
+        buffer[1].vertex2[0] = getX(i);
         buffer[1].vertex2[1] = getY(j+skip);
-        buffer[1].vertex2[2] = getZ(i+skip,j+skip);
-        buffer[1].vertex3[0] = getX(i);
+        buffer[1].vertex2[2] = getZ(i,j+skip);
+        buffer[1].vertex3[0] = getX(i+skip);
         buffer[1].vertex3[1] = getY(j+skip);
-        buffer[1].vertex3[2] = getZ(i,j+skip);
+        buffer[1].vertex3[2] = getZ(i+skip,j+skip);
         calcNormal(buffer+1);
 
         if((retVal = write(outfile,buffer,100))!=100){
