@@ -26,6 +26,7 @@
 #include<math.h>
 
 /* Let me put the SAGA GIS "Load Binary Raw Data" parameters here
+(It seems dem_newpar.par is better than dem.par we were using)
 Unit Name: Meter, Z-multiplier: 1
 No Data Value: -9999
 Data offset, Line offset, Line endset: all 0 bytes
@@ -33,12 +34,12 @@ Data type: 4 Byte Floating Point
 Byte order: Big Endian (Motorola)
 Line order: Top to bottom
 */
-#define countX 13639       //Cell Count X: 13639
-#define countY 9547        //Cell Count Y: 9547
-#define cellSize 0.000045f //Cell Size: 0.000045
-#define startX 113.8217f   //Left Border X: 113.8217
-#define startY 22.5735f    //Lower Border Y: 22.5735
-#define padding 5.0f       //Padding depth 5mm
+#define countX 13639           //Cell Count X: 13639
+#define countY 9547            //Cell Count Y: 9547
+#define cellSize 4.5454545e-05 //Cell Size
+#define startX 113.82414054f   //Left Border X
+#define startY 22.57197092f    //Lower Border Y
+#define padding 5.0f           //Padding depth 5mm
 
 float* data;
 unsigned int skip = 10;
@@ -66,12 +67,15 @@ float getY(int index){
 
 float getZ(unsigned int x, unsigned int y){
   float ans;
+  char sign;
   if(x<0 || x>=countX)fprintf(stderr,"Strange X: %u",x);
   if(y<0 || y>=countY)fprintf(stderr,"Strange Y: %u",y);
   ans = data[y*countX+x];  // Get the value
+  sign = (ans>1.0f);
   ans = ans/1852.0f*10.0f; // Convert to 1.0 nm/cm
   ans *= vertfact/scale;   // Consider scale and vertical exaggeration
-  return ans;
+  if(sign) ans += padding*0.1f; // Add some padding if it is land
+  return ans+padding;
 }
 
 #pragma pack(1)
@@ -192,6 +196,8 @@ int main(int argc, char* argv[]){
   if(ya < 0) ya=0;
   if(yb >= countX) yb = (countY-1);
   printf("Boundary cell numbers (x: %d, %d; y: %d, %d).\n",xa,xb,ya,yb);
+  printf("Estimated size of the model: %.0f mm x %.0f mm\n",ceilf(getX(xb)-getX(xa)),ceilf(getY(ya)-getY(yb)));
+  printf("That should be smaller than 203mm x 152mm x 152 mm (uPrint SE)\n");
 
   // Open our output file
   if((outfile = open("dem.stl",O_CREAT|O_WRONLY,S_IRUSR|S_IWUSR)) == -1){
@@ -204,9 +210,11 @@ int main(int argc, char* argv[]){
       fprintf(stderr,"Write fail.\n");exit(-1);
     }
     // 4-bytes for total number of facets
-    totalTriangle = (yb-ya)/skip*(xb-xa)/skip*2  /* Topography triangles */;// \
-//                   +((ya-yb)+(xa-xb))/skip*2   /* 4-sides of base */      \
-//                   +(yb-ya)/skip*(xb-xa)/skip*2; /* Bottom of base  */
+    totalTriangle = 0;
+    totalTriangle += (yb-ya)/skip*(xb-xa)/skip*2;     /* Topography triangles */
+    totalTriangle += ceilf(((yb-ya)+(xb-xa))/skip)*4; /* 4-sides of base */
+    totalTriangle += (yb-ya)/skip*(xb-xa)/skip*2;     /* Bottom of base  */
+    printf("Expected total triangles: %u\n",totalTriangle);
     if((retVal = write(outfile, &totalTriangle, sizeof(uint32_t)))!=4){
       fprintf(stderr,"Write fail.\n");exit(-1);
     }
@@ -217,7 +225,6 @@ int main(int argc, char* argv[]){
 
 /* Beware: Paul Bourke reminds that a rule for STL file is that
            all adjacent facets must share two common vertices... */
-
     // Time for the topography triangles...
     for(i=xa;(i+skip <xb)&&(i+skip <countX);i+=skip){
       for(j=ya;(j+skip <yb)&&(j+skip <countY);j+=skip){
@@ -251,10 +258,105 @@ int main(int argc, char* argv[]){
         }
       }
     }
+
     // Time for the boundary/padding triangles
+    // Padding along parallels
+    for(i=xa;(i+skip <xb)&&(i+skip <countX);i+=skip){
+      for(j=ya;j<=yb;j+=(yb-ya)/skip*skip){
+        // First triangle
+        buffer[0].vertex1[0] = getX(i);
+        buffer[0].vertex1[1] = getY(j);
+        buffer[0].vertex1[2] = 0;
+        buffer[0].vertex2[0] = getX(i+skip);
+        buffer[0].vertex2[1] = getY(j);
+        buffer[0].vertex2[2] = 0;
+        buffer[0].vertex3[0] = getX(i);
+        buffer[0].vertex3[1] = getY(j);
+        buffer[0].vertex3[2] = getZ(i,j);
+        calcNormal(buffer+0);
 
+        // Second triangle
+        buffer[1].vertex1[0] = getX(i+skip);
+        buffer[1].vertex1[1] = getY(j);
+        buffer[1].vertex1[2] = 0;
+        buffer[1].vertex2[0] = getX(i+skip);
+        buffer[1].vertex2[1] = getY(j);
+        buffer[1].vertex2[2] = getZ(i+skip,j);
+        buffer[1].vertex3[0] = getX(i);
+        buffer[1].vertex3[1] = getY(j);
+        buffer[1].vertex3[2] = getZ(i,j);
+        calcNormal(buffer+1);
+
+        if((retVal = write(outfile,buffer,100))!=100){
+          fprintf(stderr,"Write failed.\n");exit(-1);
+        }
+      }
+    }
+    // Padding along meridians
+    for(j=ya;(j+skip <yb)&&(j+skip <countY);j+=skip){
+      for(i=xa;i<=xb;i+=(xb-xa)/skip*skip){
+        // Notice, larger i is on the East and larger j is pointing South
+        // First triangle
+        buffer[0].vertex1[0] = getX(i);
+        buffer[0].vertex1[1] = getY(j);
+        buffer[0].vertex1[2] = 0;
+        buffer[0].vertex2[0] = getX(i);
+        buffer[0].vertex2[1] = getY(j+skip);
+        buffer[0].vertex2[2] = 0;
+        buffer[0].vertex3[0] = getX(i);
+        buffer[0].vertex3[1] = getY(j);
+        buffer[0].vertex3[2] = getZ(i,j);
+        calcNormal(buffer+0);
+
+        // Second triangle
+        buffer[1].vertex1[0] = getX(i);
+        buffer[1].vertex1[1] = getY(j+skip);
+        buffer[1].vertex1[2] = 0;
+        buffer[1].vertex2[0] = getX(i);
+        buffer[1].vertex2[1] = getY(j+skip);
+        buffer[1].vertex2[2] = getZ(i,j+skip);
+        buffer[1].vertex3[0] = getX(i);
+        buffer[1].vertex3[1] = getY(j);
+        buffer[1].vertex3[2] = getZ(i,j);
+        calcNormal(buffer+1);
+
+        if((retVal = write(outfile,buffer,100))!=100){
+          fprintf(stderr,"Write failed.\n");exit(-1);
+        }
+      }
+    }
     // Add the 5mm padding at the bottom
+    for(i=xa;(i+skip <xb)&&(i+skip <countX);i+=skip){
+      for(j=ya;(j+skip <yb)&&(j+skip <countY);j+=skip){
+        // First triangle
+        buffer[0].vertex1[0] = getX(i);
+        buffer[0].vertex1[1] = getY(j);
+        buffer[0].vertex1[2] = 0;
+        buffer[0].vertex2[0] = getX(i+skip);
+        buffer[0].vertex2[1] = getY(j);
+        buffer[0].vertex2[2] = 0;
+        buffer[0].vertex3[0] = getX(i);
+        buffer[0].vertex3[1] = getY(j+skip);
+        buffer[0].vertex3[2] = 0;
+        calcNormal(buffer+0);
 
+        // Second triangle
+        buffer[1].vertex1[0] = getX(i+skip);
+        buffer[1].vertex1[1] = getY(j);
+        buffer[1].vertex1[2] = 0;
+        buffer[1].vertex2[0] = getX(i+skip);
+        buffer[1].vertex2[1] = getY(j+skip);
+        buffer[1].vertex2[2] = 0;
+        buffer[1].vertex3[0] = getX(i);
+        buffer[1].vertex3[1] = getY(j+skip);
+        buffer[1].vertex3[2] = 0;
+        calcNormal(buffer+1);
+
+        if((retVal = write(outfile,buffer,100))!=100){
+          fprintf(stderr,"Write failed.\n");exit(-1);
+        }
+      }
+    }
 
   printf("Program finished.\n");
   free(data); data = NULL;
