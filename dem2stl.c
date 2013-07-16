@@ -112,14 +112,14 @@ void calcNormal(triangle* t){
 }
 
 int main(int argc, char* argv[]){
-  unsigned int i,j;           // Loop indices
+  unsigned int i,j;            // Loop indices
   int xa, xb, ya, yb;          // Boundary values
   int infile, outfile, retVal; // FD + return value tmp
   unsigned int total_size;
 
-  char headerLine[80];         // STL file header line
+  char headerLine[80];        // STL file header line
   unsigned int totalTriangle; // Total # of triangles
-  triangle buffer[2];          // Buffering two triangles
+  triangle buffer[2];         // Buffering two triangles
 
 // Read Arguments
   if(argc > 1){
@@ -267,24 +267,24 @@ int main(int argc, char* argv[]){
         buffer[0].vertex1[0] = getX(i);
         buffer[0].vertex1[1] = getY(j);
         buffer[0].vertex1[2] = 0;
-        buffer[0].vertex2[0] = getX(i+skip);
-        buffer[0].vertex2[1] = getY(j);
-        buffer[0].vertex2[2] = 0;
-        buffer[0].vertex3[0] = getX(i);
-        buffer[0].vertex3[1] = getY(j);
-        buffer[0].vertex3[2] = getZ(i,j);
+        buffer[0].vertex2[0] = (j==ya)?getX(i+skip):getX(i);
+        buffer[0].vertex2[1] = (j==ya)?getY(j)     :getY(j);
+        buffer[0].vertex2[2] = (j==ya)?0           :getZ(i,j);
+        buffer[0].vertex3[0] = (j==ya)?getX(i)     :getX(i+skip);
+        buffer[0].vertex3[1] = (j==ya)?getY(j)     :getY(j);
+        buffer[0].vertex3[2] = (j==ya)?getZ(i,j)   :0;
         calcNormal(buffer+0);
 
         // Second triangle
         buffer[1].vertex1[0] = getX(i+skip);
         buffer[1].vertex1[1] = getY(j);
         buffer[1].vertex1[2] = 0;
-        buffer[1].vertex2[0] = getX(i+skip);
-        buffer[1].vertex2[1] = getY(j);
-        buffer[1].vertex2[2] = getZ(i+skip,j);
-        buffer[1].vertex3[0] = getX(i);
-        buffer[1].vertex3[1] = getY(j);
-        buffer[1].vertex3[2] = getZ(i,j);
+        buffer[1].vertex2[0] = (j==ya)?getX(i+skip)  :getX(i);
+        buffer[1].vertex2[1] = (j==ya)?getY(j)       :getY(j);
+        buffer[1].vertex2[2] = (j==ya)?getZ(i+skip,j):getZ(i,j);
+        buffer[1].vertex3[0] = (j==ya)?getX(i)       :getX(i+skip);
+        buffer[1].vertex3[1] = (j==ya)?getY(j)       :getY(j);
+        buffer[1].vertex3[2] = (j==ya)?getZ(i,j)     :getZ(i+skip,j);
         calcNormal(buffer+1);
 
         if((retVal = write(outfile,buffer,100))!=100){
@@ -300,24 +300,24 @@ int main(int argc, char* argv[]){
         buffer[0].vertex1[0] = getX(i);
         buffer[0].vertex1[1] = getY(j);
         buffer[0].vertex1[2] = 0;
-        buffer[0].vertex2[0] = getX(i);
-        buffer[0].vertex2[1] = getY(j+skip);
-        buffer[0].vertex2[2] = 0;
-        buffer[0].vertex3[0] = getX(i);
-        buffer[0].vertex3[1] = getY(j);
-        buffer[0].vertex3[2] = getZ(i,j);
+        buffer[0].vertex2[0] = (i==xa)?getX(i)     :getX(i);
+        buffer[0].vertex2[1] = (i==xa)?getY(j+skip):getY(j);
+        buffer[0].vertex2[2] = (i==xa)?0           :getZ(i,j);
+        buffer[0].vertex3[0] = (i==xa)?getX(i)     :getX(i);
+        buffer[0].vertex3[1] = (i==xa)?getY(j)     :getY(j+skip);
+        buffer[0].vertex3[2] = (i==xa)?getZ(i,j)   :0;
         calcNormal(buffer+0);
 
         // Second triangle
         buffer[1].vertex1[0] = getX(i);
         buffer[1].vertex1[1] = getY(j+skip);
         buffer[1].vertex1[2] = 0;
-        buffer[1].vertex2[0] = getX(i);
-        buffer[1].vertex2[1] = getY(j+skip);
-        buffer[1].vertex2[2] = getZ(i,j+skip);
-        buffer[1].vertex3[0] = getX(i);
-        buffer[1].vertex3[1] = getY(j);
-        buffer[1].vertex3[2] = getZ(i,j);
+        buffer[1].vertex2[0] = (i==xa)?getX(i)       :getX(i);
+        buffer[1].vertex2[1] = (i==xa)?getY(j+skip)  :getY(j);
+        buffer[1].vertex2[2] = (i==xa)?getZ(i,j+skip):getZ(i,j);
+        buffer[1].vertex3[0] = (i==xa)?getX(i)       :getX(i);
+        buffer[1].vertex3[1] = (i==xa)?getY(j)       :getY(j+skip);
+        buffer[1].vertex3[2] = (i==xa)?getZ(i,j)     :getZ(i,j+skip);
         calcNormal(buffer+1);
 
         if((retVal = write(outfile,buffer,100))!=100){
