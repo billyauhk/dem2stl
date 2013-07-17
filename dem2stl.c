@@ -5,7 +5,7 @@
    but would still demonstrates my defensive habit.
 
    Output model unit is specified here to be 1.0 mm
-   And a 5-mm back-plate will be added so that it does not fall apart
+   And a 3-mm back-plate will be added so that it does not fall apart
 */
 
 /* Invocation:
@@ -39,7 +39,7 @@ Line order: Top to bottom
 #define cellSize 4.5454545e-05 //Cell Size
 #define startX 113.82414054f   //Left Border X
 #define startY 22.57197092f    //Lower Border Y
-#define padding 5.0f           //Padding depth 5mm
+#define padding 3.0f           //Padding depth 5mm
 
 float* data;
 unsigned int skip = 10;
@@ -74,7 +74,7 @@ float getZ(unsigned int x, unsigned int y){
   sign = (ans>1.0f);
   ans = ans/1852.0f*10.0f; // Convert to 1.0 nm/cm
   ans *= vertfact/scale;   // Consider scale and vertical exaggeration
-  if(sign) ans += padding*0.1f; // Add some padding if it is land
+  if(sign) ans += padding*0.2f; // Add some padding if it is land
   return ans+padding;
 }
 
